@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -31,9 +31,12 @@ import {
   LogOut,
   Settings,
 } from "lucide-react-native";
+import { router } from "expo-router";
 import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
 import ActionButton from "@/components/ActionButton";
+import { auth } from "@/config/firebase";
+import { onAuthChange, logoutUser, getUserData } from "@/services/firebaseAuth";
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -41,6 +44,9 @@ export default function ProfileScreen() {
   const [aiMonitoring, setAIMonitoring] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(true);
   const [voiceActivation, setVoiceActivation] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const theme = useTheme();
 
   const [fontsLoaded] = useFonts({
@@ -49,25 +55,66 @@ export default function ProfileScreen() {
     Inter_600SemiBold,
   });
 
-  const userProfile = {
-    name: "Sarah Johnson",
-    email: "sarah@example.com",
-    phone: "+1 (555) 123-4567",
-    emergencyContacts: 3,
-    communityPosts: 12,
-    alertsShared: 5,
+  useEffect(() => {
+    // Check authentication and fetch user data
+    const unsubscribe = onAuthChange(async (user) => {
+      setIsAuthenticated(!!user);
+      if (user) {
+        const result = await getUserData(user.uid);
+        if (result.success) {
+          setUserData(result.data);
+        }
+      } else {
+        setUserData(null);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const userProfile = userData ? {
+    name: userData.name || "User",
+    email: userData.email || "",
+    phone: userData.phone || "",
+    emergencyContacts: userData.emergencyContacts?.length || 0,
+    address: userData.address || "",
+    occupation: userData.occupation || "",
+  } : {
+    name: "Guest",
+    email: "",
+    phone: "",
+    emergencyContacts: 0,
+    address: "",
+    occupation: "",
   };
 
   const handleEmergencyContacts = () => {
-    Alert.alert(
-      "Emergency Contacts",
-      "Manage your emergency contact list. These contacts will be notified during SOS activations.",
-      [
-        { text: "Add Contact", onPress: () => console.log("Add contact") },
-        { text: "View All", onPress: () => console.log("View contacts") },
-        { text: "Cancel", style: "cancel" },
-      ]
-    );
+    if (!isAuthenticated) {
+      Alert.alert('Login Required', 'Please login to manage emergency contacts', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Login', onPress: () => router.push('/login') }
+      ]);
+      return;
+    }
+
+    if (userData && userData.emergencyContacts) {
+      const contactsList = userData.emergencyContacts
+        .map((contact, index) => `${index + 1}. ${contact.name}: ${contact.phone}`)
+        .join('\n');
+      
+      Alert.alert(
+        "Emergency Contacts",
+        `Your emergency contacts:\n\n${contactsList}`,
+        [{ text: "OK" }]
+      );
+    } else {
+      Alert.alert(
+        "No Emergency Contacts",
+        "You haven't added any emergency contacts yet. Please update your profile.",
+        [{ text: "OK" }]
+      );
+    }
   };
 
   const handleGeoFences = () => {
@@ -108,18 +155,112 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
+    if (!isAuthenticated) {
+      Alert.alert(
+        'Not Logged In',
+        'You are not currently logged in.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Login', onPress: () => router.push('/login') }
+        ]
+      );
+      return;
+    }
+
     Alert.alert(
       "Sign Out",
       "Are you sure you want to sign out? This will disable safety monitoring until you sign back in.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Sign Out", style: "destructive", onPress: () => console.log("Logout") },
+        { 
+          text: "Sign Out", 
+          style: "destructive", 
+          onPress: async () => {
+            const result = await logoutUser();
+            if (result.success) {
+              Alert.alert('Logged Out', 'You have been successfully logged out.');
+              router.replace('/login');
+            } else {
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          }
+        },
       ]
     );
   };
 
-  if (!fontsLoaded) {
+  if (!fontsLoaded || loading) {
     return <LoadingScreen />;
+  }
+
+  // Show login prompt if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+        <StatusBar style={theme.colors.statusBar} />
+        <Shield size={64} color={theme.colors.emergency} strokeWidth={2} />
+        <Text
+          style={{
+            fontFamily: "Inter_600SemiBold",
+            fontSize: 24,
+            color: theme.colors.text,
+            marginTop: 24,
+            marginBottom: 12,
+            textAlign: 'center',
+          }}
+        >
+          Login Required
+        </Text>
+        <Text
+          style={{
+            fontFamily: "Inter_400Regular",
+            fontSize: 16,
+            color: theme.colors.textSecondary,
+            marginBottom: 32,
+            textAlign: 'center',
+          }}
+        >
+          Please login to access your profile and safety settings
+        </Text>
+        <TouchableOpacity
+          style={{
+            backgroundColor: theme.colors.emergency,
+            borderRadius: 12,
+            paddingHorizontal: 32,
+            paddingVertical: 16,
+          }}
+          onPress={() => router.push('/login')}
+          data-testid="profile-login-button"
+        >
+          <Text
+            style={{
+              fontFamily: "Inter_600SemiBold",
+              fontSize: 16,
+              color: "#FFFFFF",
+            }}
+          >
+            Login
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={{ marginTop: 16 }}
+          onPress={() => router.push('/register')}
+        >
+          <Text
+            style={{
+              fontFamily: "Inter_400Regular",
+              fontSize: 14,
+              color: theme.colors.textSecondary,
+            }}
+          >
+            Don't have an account?{' '}
+            <Text style={{ color: theme.colors.emergency, fontFamily: 'Inter_600SemiBold' }}>
+              Register
+            </Text>
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
   const SettingItem = ({ icon: IconComponent, title, subtitle, onPress, rightElement }) => (
@@ -265,7 +406,7 @@ export default function ProfileScreen() {
             <View
               style={{
                 flexDirection: "row",
-                justifyContent: "space-between",
+                justifyContent: "space-around",
                 paddingTop: 16,
                 borderTopWidth: 1,
                 borderTopColor: theme.colors.divider,
@@ -299,7 +440,7 @@ export default function ProfileScreen() {
                     color: theme.colors.text,
                   }}
                 >
-                  {userProfile.communityPosts}
+                  {userProfile.occupation || 'N/A'}
                 </Text>
                 <Text
                   style={{
@@ -308,27 +449,7 @@ export default function ProfileScreen() {
                     color: theme.colors.textSecondary,
                   }}
                 >
-                  Community Posts
-                </Text>
-              </View>
-              <View style={{ alignItems: "center" }}>
-                <Text
-                  style={{
-                    fontFamily: "Inter_600SemiBold",
-                    fontSize: 20,
-                    color: theme.colors.text,
-                  }}
-                >
-                  {userProfile.alertsShared}
-                </Text>
-                <Text
-                  style={{
-                    fontFamily: "Inter_400Regular",
-                    fontSize: 12,
-                    color: theme.colors.textSecondary,
-                  }}
-                >
-                  Alerts Shared
+                  Occupation
                 </Text>
               </View>
             </View>

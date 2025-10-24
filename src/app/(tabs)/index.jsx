@@ -32,6 +32,9 @@ import { router } from "expo-router";
 import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
 import ActionButton from "@/components/ActionButton";
+import { auth } from "@/config/firebase";
+import { onAuthChange } from "@/services/firebaseAuth";
+import { activateSOS } from "@/services/sosService";
 
 export default function SafetyHomeScreen() {
   const insets = useSafeAreaInsets();
@@ -39,6 +42,8 @@ export default function SafetyHomeScreen() {
   const [sosCountdown, setSOSCountdown] = useState(5);
   const [safetyStatus, setSafetyStatus] = useState("Safe");
   const [nearbyResources, setNearbyResources] = useState([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const theme = useTheme();
 
   const [fontsLoaded] = useFonts({
@@ -47,6 +52,16 @@ export default function SafetyHomeScreen() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+
+  useEffect(() => {
+    // Check authentication status
+    const unsubscribe = onAuthChange((user) => {
+      setIsAuthenticated(!!user);
+      setCurrentUser(user);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     // Simulate fetching nearby safety resources
@@ -85,26 +100,35 @@ export default function SafetyHomeScreen() {
   };
 
   const handleSOSActivation = async () => {
-    try {
-      const response = await fetch('/api/safety/sos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: { lat: 40.7128, lng: -74.0060 }, // Mock location
-          timestamp: new Date().toISOString(),
-        }),
-      });
+    // Check if user is logged in
+    if (!isAuthenticated) {
+      Alert.alert(
+        'Login Required',
+        'Please login to use SOS feature',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Login', onPress: () => router.push('/login') }
+        ]
+      );
+      return;
+    }
 
-      if (response.ok) {
+    try {
+      // Activate SOS with Firebase integration
+      const result = await activateSOS();
+      
+      if (result.success) {
         Alert.alert(
           "SOS Activated",
-          "Emergency contacts have been notified. Help is on the way.",
+          `Emergency contacts have been notified!\n${result.contactsNotified} contacts alerted.`,
           [{ text: "OK" }]
         );
+      } else {
+        Alert.alert("SOS Failed", "Unable to activate SOS. Please call emergency services directly.");
       }
     } catch (error) {
       console.error('SOS activation failed:', error);
-      Alert.alert("SOS Activated", "Emergency protocol initiated.");
+      Alert.alert("SOS Error", "Failed to activate SOS. Please call emergency services directly.");
     }
   };
 
@@ -173,24 +197,47 @@ export default function SafetyHomeScreen() {
             </Text>
           </View>
 
-          <View
-            style={{
-              backgroundColor: theme.colors.safe,
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 16,
-            }}
-          >
-            <Text
+          {!isAuthenticated ? (
+            <TouchableOpacity
               style={{
-                fontFamily: "Inter_500Medium",
-                fontSize: 12,
-                color: "#FFFFFF",
+                backgroundColor: theme.colors.emergency,
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                borderRadius: 16,
+              }}
+              onPress={() => router.push('/login')}
+              data-testid="home-login-button"
+            >
+              <Text
+                style={{
+                  fontFamily: "Inter_500Medium",
+                  fontSize: 12,
+                  color: "#FFFFFF",
+                }}
+              >
+                Login
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <View
+              style={{
+                backgroundColor: theme.colors.safe,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 16,
               }}
             >
-              {safetyStatus}
-            </Text>
-          </View>
+              <Text
+                style={{
+                  fontFamily: "Inter_500Medium",
+                  fontSize: 12,
+                  color: "#FFFFFF",
+                }}
+              >
+                {safetyStatus}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Main SOS Button */}
