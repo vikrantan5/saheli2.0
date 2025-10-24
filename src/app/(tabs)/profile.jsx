@@ -35,8 +35,8 @@ import { router } from "expo-router";
 import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
 import ActionButton from "@/components/ActionButton";
-import { auth } from "@/config/firebase";
-import { onAuthChange, logoutUser, getUserData } from "@/services/firebaseAuth";
+import ManageEmergencyContacts from "@/components/ManageEmergencyContacts";
+import { onAuthChange, logoutUser, getUserData } from "@/services/supabaseAuth";
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -47,6 +47,7 @@ export default function ProfileScreen() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showManageContacts, setShowManageContacts] = useState(false);
   const theme = useTheme();
 
   const [fontsLoaded] = useFonts({
@@ -98,22 +99,19 @@ export default function ProfileScreen() {
       return;
     }
 
-    if (userData && userData.emergencyContacts) {
-      const contactsList = userData.emergencyContacts
-        .map((contact, index) => `${index + 1}. ${contact.name}: ${contact.phone}`)
-        .join('\n');
-      
-      Alert.alert(
-        "Emergency Contacts",
-        `Your emergency contacts:\n\n${contactsList}`,
-        [{ text: "OK" }]
-      );
-    } else {
-      Alert.alert(
-        "No Emergency Contacts",
-        "You haven't added any emergency contacts yet. Please update your profile.",
-        [{ text: "OK" }]
-      );
+    // Open the manage contacts screen
+    setShowManageContacts(true);
+  };
+
+  const handleCloseManageContacts = async () => {
+    setShowManageContacts(false);
+    // Reload user data to refresh contact count
+    const user = await getCurrentUser();
+    if (user) {
+      const result = await getUserData(user.id);
+      if (result.success) {
+        setUserData(result.data);
+      }
     }
   };
 

@@ -61,7 +61,9 @@
     "extra": {
       "router": {
         "origin": false
-      }
+      },
+      "supabaseUrl": "https://qhhxurqgigshrlzvmsbf.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoaHh1cnFnaWdzaHJsenZtc2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEyNTM0NjcsImV4cCI6MjA3NjgyOTQ2N30.ECpB-eBOY5_btjfjaCPjeDPiGDLaIalegbzz5I9FhYs"
     },
     "runtimeVersion": {
       "policy": "appVersion"

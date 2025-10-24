@@ -32,13 +32,11 @@ import { router } from "expo-router";
 import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
 import ActionButton from "@/components/ActionButton";
+import FakeCall from "@/components/FakeCall";
+import LoudAlarm from "@/components/LoudAlarm";
 // Updated to use Supabase instead of Firebase
 import { onAuthChange } from "@/services/supabaseAuth";
 import { activateSOS } from "@/services/supabaseSosService";
-// OLD Firebase imports (commented for backup):
-// import { auth } from "@/config/firebase";
-// import { onAuthChange } from "@/services/firebaseAuth";
-// import { activateSOS } from "@/services/sosService";
 
 export default function SafetyHomeScreen() {
   const insets = useSafeAreaInsets();
@@ -48,6 +46,8 @@ export default function SafetyHomeScreen() {
   const [nearbyResources, setNearbyResources] = useState([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [showFakeCall, setShowFakeCall] = useState(false);
+  const [showLoudAlarm, setShowLoudAlarm] = useState(false);
   const theme = useTheme();
 
   const [fontsLoaded] = useFonts({
@@ -137,20 +137,11 @@ export default function SafetyHomeScreen() {
   };
 
   const handleFakeCall = () => {
-    Alert.alert(
-      "Fake Call",
-      "Starting fake call to help you exit safely...",
-      [{ text: "OK" }]
-    );
+    setShowFakeCall(true);
   };
 
   const handleLoudAlarm = () => {
-    Alert.alert(
-      "Loud Alarm",
-      "Alarm activated to attract attention!",
-      [{ text: "Stop Alarm", style: "destructive" }]
-    );
-    Vibration.vibrate([500, 200, 500, 200, 500]);
+    setShowLoudAlarm(true);
   };
 
   if (!fontsLoaded) {
@@ -262,6 +253,7 @@ export default function SafetyHomeScreen() {
             }}
             onPress={handleSOSPress}
             activeOpacity={0.8}
+            data-testid="home-sos-button"
           >
             {isSOSActive ? (
               <View style={{ alignItems: "center" }}>
@@ -340,6 +332,7 @@ export default function SafetyHomeScreen() {
                 alignItems: "center",
               }}
               onPress={handleFakeCall}
+              data-testid="home-fake-call-button"
             >
               <PhoneCall size={24} color={theme.colors.text} strokeWidth={1.5} />
               <Text
@@ -364,6 +357,7 @@ export default function SafetyHomeScreen() {
                 alignItems: "center",
               }}
               onPress={handleLoudAlarm}
+              data-testid="home-loud-alarm-button"
             >
               <Volume2 size={24} color={theme.colors.text} strokeWidth={1.5} />
               <Text
@@ -596,6 +590,12 @@ export default function SafetyHomeScreen() {
           ))}
         </View>
       </ScrollView>
+
+      {/* Fake Call Modal */}
+      <FakeCall visible={showFakeCall} onDismiss={() => setShowFakeCall(false)} />
+
+      {/* Loud Alarm Modal */}
+      <LoudAlarm visible={showLoudAlarm} onDismiss={() => setShowLoudAlarm(false)} />
     </View>
   );
 }
