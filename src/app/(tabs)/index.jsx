@@ -32,9 +32,13 @@ import { router } from "expo-router";
 import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
 import ActionButton from "@/components/ActionButton";
-import { auth } from "@/config/firebase";
-import { onAuthChange } from "@/services/firebaseAuth";
-import { activateSOS } from "@/services/sosService";
+// Updated to use Supabase instead of Firebase
+import { onAuthChange } from "@/services/supabaseAuth";
+import { activateSOS } from "@/services/supabaseSosService";
+// OLD Firebase imports (commented for backup):
+// import { auth } from "@/config/firebase";
+// import { onAuthChange } from "@/services/firebaseAuth";
+// import { activateSOS } from "@/services/sosService";
 
 export default function SafetyHomeScreen() {
   const insets = useSafeAreaInsets();

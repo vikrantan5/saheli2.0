@@ -11,7 +11,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Shield, ArrowLeft } from 'lucide-react-native';
 import { router } from 'expo-router';
-import { loginUser } from '@/services/firebaseAuth';
+// Updated to use Supabase instead of Firebase
+import { loginUser } from '@/services/supabaseAuth';
+// OLD Firebase import (commented for backup):
+// import { loginUser } from '@/services/firebaseAuth';
 import { useTheme } from '@/utils/useTheme';
 
 export default function LoginScreen() {
