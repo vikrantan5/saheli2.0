@@ -83,13 +83,18 @@ export const loginUser = async (email, password) => {
   }
 };
 
-// Sign out user
+// Sign out user with proper session cleanup
 export const logoutUser = async () => {
   try {
+    // Sign out from Supabase (this automatically clears AsyncStorage session)
     const { error } = await supabase.auth.signOut();
     if (error) return { success: false, error: error.message };
+    
+    // Additional cleanup if needed
+    console.log('User logged out successfully');
     return { success: true };
   } catch (error) {
+    console.error('Logout error:', error);
     return { success: false, error: error.message };
   }
 };

@@ -37,6 +37,7 @@ import LoadingScreen from "@/components/LoadingScreen";
 import ActionButton from "@/components/ActionButton";
 import ManageEmergencyContacts from "@/components/ManageEmergencyContacts";
 import { onAuthChange, logoutUser, getUserData } from "@/services/supabaseAuth";
+import { supabase } from "@/config/supabase";
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -61,7 +62,7 @@ export default function ProfileScreen() {
     const unsubscribe = onAuthChange(async (user) => {
       setIsAuthenticated(!!user);
       if (user) {
-        const result = await getUserData(user.uid);
+        const result = await getUserData(user.id);
         if (result.success) {
           setUserData(result.data);
         }
@@ -106,7 +107,7 @@ export default function ProfileScreen() {
   const handleCloseManageContacts = async () => {
     setShowManageContacts(false);
     // Reload user data to refresh contact count
-    const user = await getCurrentUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const result = await getUserData(user.id);
       if (result.success) {

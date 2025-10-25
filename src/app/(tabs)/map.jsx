@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   Alert,
   Dimensions,
+  ActivityIndicator,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,6 +16,7 @@ import {
   Inter_500Medium,
   Inter_600SemiBold,
 } from "@expo-google-fonts/inter";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import {
   MapPin,
   Navigation,
@@ -24,19 +26,39 @@ import {
   Route,
   Clock,
   Zap,
+  Phone,
+  Activity,
 } from "lucide-react-native";
 import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
-import ActionButton from "@/components/ActionButton";
+import { onAuthChange } from "@/services/supabaseAuth";
+import {
+  getCurrentLocation,
+  startLocationTracking,
+  stopLocationTracking,
+  isLocationTrackingActive,
+} from "@/services/locationService";
+import {
+  getNearbyPlaces,
+  getSafeRoute,
+  decodePolyline,
+  calculateDistance,
+} from "@/services/googleMapsService";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 export default function SafetyMapScreen() {
   const insets = useSafeAreaInsets();
-  const [safetyData, setSafetyData] = useState([]);
+  const mapRef = useRef(null);
   const [currentLocation, setCurrentLocation] = useState(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState([]);
   const [selectedRoute, setSelectedRoute] = useState("safest");
-  const [nearbyAlerts, setNearbyAlerts] = useState([]);
+  const [routePolyline, setRoutePolyline] = useState([]);
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loadingPlaces, setLoadingPlaces] = useState(false);
   const theme = useTheme();
 
   const [fontsLoaded] = useFonts({
@@ -46,74 +68,161 @@ export default function SafetyMapScreen() {
   });
 
   useEffect(() => {
-    // Simulate loading safety data and current location
-    setSafetyData([
-      { id: 1, type: "safe", lat: 40.7128, lng: -74.0060, intensity: 0.8 },
-      { id: 2, type: "warning", lat: 40.7140, lng: -74.0050, intensity: 0.6 },
-      { id: 3, type: "danger", lat: 40.7150, lng: -74.0040, intensity: 0.9 },
-    ]);
+    // Check authentication
+    const unsubscribe = onAuthChange((user) => {
+      setIsAuthenticated(!!user);
+      setCurrentUser(user);
+    });
 
-    setCurrentLocation({ lat: 40.7128, lng: -74.0060 });
-
-    setNearbyAlerts([
-      {
-        id: 1,
-        type: "High Risk Area",
-        location: "5th Street & Main",
-        distance: "200m",
-        severity: "high",
-        timestamp: "2 min ago",
-      },
-      {
-        id: 2,
-        type: "Well-lit Path",
-        location: "Park Avenue",
-        distance: "150m",
-        severity: "safe",
-        timestamp: "5 min ago",
-      },
-      {
-        id: 3,
-        type: "Police Patrol",
-        location: "Downtown Square",
-        distance: "300m",
-        severity: "safe",
-        timestamp: "10 min ago",
-      },
-    ]);
+    return () => unsubscribe();
   }, []);
 
-  const handleRouteSelect = (routeType) => {
-    setSelectedRoute(routeType);
-    Alert.alert(
-      "Route Selected",
-      `Calculating ${routeType} route with real-time safety data...`,
-      [{ text: "OK" }]
-    );
-  };
+  useEffect(() => {
+    // Initialize location and load nearby places
+    initializeMap();
 
-  const handleStartNavigation = async () => {
+    return () => {
+      // Clean up location tracking when component unmounts
+      if (currentUser) {
+        stopLocationTracking();
+      }
+    };
+  }, [currentUser]);
+
+  const initializeMap = async () => {
     try {
-      const response = await fetch('/api/safety/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          origin: currentLocation,
-          destination: { lat: 40.7589, lng: -73.9851 }, // Mock destination
-          routeType: selectedRoute,
-        }),
-      });
-
-      if (response.ok) {
+      setLoading(true);
+      
+      // Get current location
+      const location = await getCurrentLocation();
+      
+      if (location) {
+        setCurrentLocation(location);
+        
+        // Start automatic location tracking if user is authenticated
+        if (currentUser) {
+          await startLocationTracking(currentUser.id);
+        }
+        
+        // Load nearby safe places
+        await loadNearbyPlaces(location.latitude, location.longitude);
+        
+        // Center map on current location
+        if (mapRef.current) {
+          mapRef.current.animateToRegion({
+            latitude: location.latitude,
+            longitude: location.longitude,
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05,
+          }, 1000);
+        }
+      } else {
         Alert.alert(
-          "Navigation Started",
-          "Safe route navigation activated with real-time updates.",
-          [{ text: "OK" }]
+          'Location Required',
+          'Please enable location services to use the map features.',
+          [{ text: 'OK' }]
         );
       }
     } catch (error) {
-      console.error('Navigation failed:', error);
-      Alert.alert("Navigation Started", "Safe route guidance activated.");
+      console.error('Initialize map error:', error);
+      Alert.alert('Error', 'Failed to initialize map. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadNearbyPlaces = async (latitude, longitude) => {
+    try {
+      setLoadingPlaces(true);
+      const places = await getNearbyPlaces(latitude, longitude);
+      setNearbyPlaces(places);
+    } catch (error) {
+      console.error('Load nearby places error:', error);
+    } finally {
+      setLoadingPlaces(false);
+    }
+  };
+
+  const handleRouteSelect = (routeType) => {
+    setSelectedRoute(routeType);
+  };
+
+  const handleStartNavigation = async () => {
+    if (!currentLocation) {
+      Alert.alert('Error', 'Current location not available');
+      return;
+    }
+
+    // For demo, we'll use the nearest safe place as destination
+    if (nearbyPlaces.length === 0) {
+      Alert.alert('No Destination', 'No nearby safe places found. Please try again.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Use first nearby place as destination
+      const destination = {
+        latitude: nearbyPlaces[0].latitude,
+        longitude: nearbyPlaces[0].longitude,
+      };
+
+      const route = await getSafeRoute(currentLocation, destination, selectedRoute);
+      
+      if (route) {
+        // Decode and set polyline
+        const coordinates = decodePolyline(route.polyline);
+        setRoutePolyline(coordinates);
+        setRouteInfo(route);
+        
+        // Fit map to show entire route
+        if (mapRef.current && coordinates.length > 0) {
+          mapRef.current.fitToCoordinates(coordinates, {
+            edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+            animated: true,
+          });
+        }
+
+        Alert.alert(
+          'Route Calculated',
+          `Distance: ${route.distance}\nEstimated time: ${route.duration}`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Error', 'Failed to calculate route. Please try again.');
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      Alert.alert('Error', 'Failed to start navigation. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getMarkerColor = (type) => {
+    switch (type) {
+      case 'police':
+        return theme.colors.safe;
+      case 'hospital':
+        return theme.colors.emergency;
+      case 'fire_station':
+        return theme.colors.warning;
+      default:
+        return theme.colors.text;
+    }
+  };
+
+  const getMarkerIcon = (type) => {
+    switch (type) {
+      case 'police':
+        return '🚔';
+      case 'hospital':
+        return '🏥';
+      case 'fire_station':
+        return '🚒';
+      default:
+        return '📍';
     }
   };
 
@@ -121,469 +230,364 @@ export default function SafetyMapScreen() {
     return <LoadingScreen />;
   }
 
-  const getSeverityColor = (severity) => {
-    switch (severity) {
-      case "high":
-        return theme.colors.danger;
-      case "medium":
-        return theme.colors.warning;
-      case "safe":
-        return theme.colors.safe;
-      default:
-        return theme.colors.textSecondary;
-    }
-  };
-
-  const getSeverityIcon = (severity) => {
-    switch (severity) {
-      case "high":
-        return AlertTriangle;
-      case "safe":
-        return Shield;
-      default:
-        return Eye;
-    }
-  };
-
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <StatusBar style={theme.colors.statusBar} />
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          paddingTop: insets.top + 16,
-          paddingBottom: insets.bottom + 16,
-        }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={{ paddingHorizontal: 24, marginBottom: 24 }}>
-          <Text
-            style={{
-              fontFamily: "Inter_600SemiBold",
-              fontSize: 24,
-              color: theme.colors.text,
-              marginBottom: 4,
+      {/* Map View */}
+      <View style={{ flex: 1 }}>
+        {currentLocation ? (
+          <MapView
+            ref={mapRef}
+            provider={PROVIDER_GOOGLE}
+            style={{ flex: 1 }}
+            initialRegion={{
+              latitude: currentLocation.latitude,
+              longitude: currentLocation.longitude,
+              latitudeDelta: 0.05,
+              longitudeDelta: 0.05,
             }}
+            showsUserLocation={true}
+            showsMyLocationButton={false}
+            showsCompass={true}
+            data-testid="map-view"
           >
-            Safety Map
-          </Text>
-          <Text
-            style={{
-              fontFamily: "Inter_400Regular",
-              fontSize: 14,
-              color: theme.colors.textSecondary,
-            }}
-          >
-            Real-time safety heatmap & safe routes
-          </Text>
-        </View>
+            {/* Current Location Marker */}
+            <Marker
+              coordinate={{
+                latitude: currentLocation.latitude,
+                longitude: currentLocation.longitude,
+              }}
+              title="Your Location"
+              pinColor={theme.colors.emergency}
+            />
 
-        {/* Map Placeholder */}
-        <View
-          style={{
-            height: screenHeight * 0.4,
-            marginHorizontal: 24,
-            backgroundColor: theme.colors.elevated,
-            borderRadius: 12,
-            justifyContent: "center",
-            alignItems: "center",
-            marginBottom: 24,
-            position: "relative",
-          }}
-        >
-          {/* Mock Map Interface */}
+            {/* Nearby Safe Places Markers */}
+            {nearbyPlaces.map((place) => (
+              <Marker
+                key={place.id}
+                coordinate={{
+                  latitude: place.latitude,
+                  longitude: place.longitude,
+                }}
+                title={place.name}
+                description={`${place.type} • ${calculateDistance(
+                  currentLocation.latitude,
+                  currentLocation.longitude,
+                  place.latitude,
+                  place.longitude
+                )} km away`}
+                pinColor={getMarkerColor(place.type)}
+              />
+            ))}
+
+            {/* Route Polyline */}
+            {routePolyline.length > 0 && (
+              <Polyline
+                coordinates={routePolyline}
+                strokeColor={theme.colors.emergency}
+                strokeWidth={4}
+              />
+            )}
+          </MapView>
+        ) : (
           <View
             style={{
-              position: "absolute",
+              flex: 1,
+              justifyContent: 'center',
+              alignItems: 'center',
+              backgroundColor: theme.colors.elevated,
+            }}
+          >
+            <ActivityIndicator size="large" color={theme.colors.emergency} />
+            <Text
+              style={{
+                fontFamily: 'Inter_500Medium',
+                fontSize: 16,
+                color: theme.colors.text,
+                marginTop: 16,
+              }}
+            >
+              Loading map...
+            </Text>
+          </View>
+        )}
+
+        {/* Loading Overlay */}
+        {loading && (
+          <View
+            style={{
+              position: 'absolute',
               top: 0,
               left: 0,
               right: 0,
               bottom: 0,
-              borderRadius: 12,
+              backgroundColor: 'rgba(0,0,0,0.3)',
+              justifyContent: 'center',
+              alignItems: 'center',
             }}
           >
-            {/* Safety zones overlay */}
-            <View
-              style={{
-                position: "absolute",
-                top: 40,
-                left: 60,
-                width: 80,
-                height: 80,
-                borderRadius: 40,
-                backgroundColor: theme.colors.safe,
-                opacity: 0.3,
-              }}
-            />
-            <View
-              style={{
-                position: "absolute",
-                top: 80,
-                right: 40,
-                width: 60,
-                height: 60,
-                borderRadius: 30,
-                backgroundColor: theme.colors.warning,
-                opacity: 0.4,
-              }}
-            />
-            <View
-              style={{
-                position: "absolute",
-                bottom: 60,
-                left: 40,
-                width: 70,
-                height: 70,
-                borderRadius: 35,
-                backgroundColor: theme.colors.danger,
-                opacity: 0.4,
-              }}
-            />
+            <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
+        )}
 
-          <MapPin size={48} color={theme.colors.textSecondary} strokeWidth={1.5} />
-          <Text
-            style={{
-              fontFamily: "Inter_500Medium",
-              fontSize: 16,
-              color: theme.colors.textSecondary,
-              marginTop: 8,
-            }}
-          >
-            Loading Safety Map...
-          </Text>
-          <Text
-            style={{
-              fontFamily: "Inter_400Regular",
-              fontSize: 12,
-              color: theme.colors.textTertiary,
-              marginTop: 4,
-            }}
-          >
-            AI-powered threat detection active
-          </Text>
-
-          {/* Current location indicator */}
+        {/* Controls Overlay */}
+        <View
+          style={{
+            position: 'absolute',
+            top: insets.top + 16,
+            left: 0,
+            right: 0,
+            paddingHorizontal: 24,
+          }}
+        >
+          {/* Header */}
           <View
             style={{
-              position: "absolute",
-              bottom: 100,
-              alignSelf: "center",
-              width: 16,
-              height: 16,
-              borderRadius: 8,
-              backgroundColor: theme.colors.emergency,
-              borderWidth: 3,
-              borderColor: "#FFFFFF",
-            }}
-          />
-        </View>
-
-        {/* Route Options */}
-        <View style={{ paddingHorizontal: 24, marginBottom: 24 }}>
-          <Text
-            style={{
-              fontFamily: "Inter_600SemiBold",
-              fontSize: 18,
-              color: theme.colors.text,
-              marginBottom: 16,
-            }}
-          >
-            Route Options
-          </Text>
-
-          <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
-            <TouchableOpacity
-              style={{
-                flex: 1,
-                backgroundColor:
-                  selectedRoute === "safest" ? theme.colors.safe : theme.colors.elevated,
-                borderRadius: 12,
-                padding: 16,
-                alignItems: "center",
-              }}
-              onPress={() => handleRouteSelect("safest")}
-            >
-              <Shield
-                size={24}
-                color={selectedRoute === "safest" ? "#FFFFFF" : theme.colors.text}
-                strokeWidth={1.5}
-              />
-              <Text
-                style={{
-                  fontFamily: "Inter_500Medium",
-                  fontSize: 12,
-                  color: selectedRoute === "safest" ? "#FFFFFF" : theme.colors.text,
-                  marginTop: 8,
-                  textAlign: "center",
-                }}
-              >
-                Safest Route
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{
-                flex: 1,
-                backgroundColor:
-                  selectedRoute === "fastest" ? theme.colors.warning : theme.colors.elevated,
-                borderRadius: 12,
-                padding: 16,
-                alignItems: "center",
-              }}
-              onPress={() => handleRouteSelect("fastest")}
-            >
-              <Zap
-                size={24}
-                color={selectedRoute === "fastest" ? "#FFFFFF" : theme.colors.text}
-                strokeWidth={1.5}
-              />
-              <Text
-                style={{
-                  fontFamily: "Inter_500Medium",
-                  fontSize: 12,
-                  color: selectedRoute === "fastest" ? "#FFFFFF" : theme.colors.text,
-                  marginTop: 8,
-                  textAlign: "center",
-                }}
-              >
-                Fastest Route
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{
-                flex: 1,
-                backgroundColor:
-                  selectedRoute === "well-lit" ? theme.colors.text : theme.colors.elevated,
-                borderRadius: 12,
-                padding: 16,
-                alignItems: "center",
-              }}
-              onPress={() => handleRouteSelect("well-lit")}
-            >
-              <Eye
-                size={24}
-                color={selectedRoute === "well-lit" ? theme.colors.background : theme.colors.text}
-                strokeWidth={1.5}
-              />
-              <Text
-                style={{
-                  fontFamily: "Inter_500Medium",
-                  fontSize: 12,
-                  color: selectedRoute === "well-lit" ? theme.colors.background : theme.colors.text,
-                  marginTop: 8,
-                  textAlign: "center",
-                }}
-              >
-                Well-lit Path
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ActionButton
-            title="Start Safe Navigation"
-            onPress={handleStartNavigation}
-            style={{ marginBottom: 8 }}
-          />
-        </View>
-
-        {/* Nearby Safety Alerts */}
-        <View style={{ paddingHorizontal: 24 }}>
-          <Text
-            style={{
-              fontFamily: "Inter_600SemiBold",
-              fontSize: 18,
-              color: theme.colors.text,
-              marginBottom: 16,
-            }}
-          >
-            Nearby Safety Alerts
-          </Text>
-
-          {nearbyAlerts.map((alert, index) => {
-            const SeverityIcon = getSeverityIcon(alert.severity);
-            return (
-              <View key={alert.id}>
-                <TouchableOpacity
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingVertical: 12,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
-                      backgroundColor: getSeverityColor(alert.severity),
-                      justifyContent: "center",
-                      alignItems: "center",
-                      marginRight: 12,
-                    }}
-                  >
-                    <SeverityIcon size={16} color="#FFFFFF" strokeWidth={2} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }}>
-                      <Text
-                        style={{
-                          fontFamily: "Inter_500Medium",
-                          fontSize: 14,
-                          color: theme.colors.text,
-                          flex: 1,
-                        }}
-                      >
-                        {alert.type}
-                      </Text>
-                      <Text
-                        style={{
-                          fontFamily: "Inter_400Regular",
-                          fontSize: 12,
-                          color: theme.colors.textTertiary,
-                        }}
-                      >
-                        {alert.timestamp}
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <MapPin size={12} color={theme.colors.textSecondary} strokeWidth={1.5} />
-                      <Text
-                        style={{
-                          fontFamily: "Inter_400Regular",
-                          fontSize: 12,
-                          color: theme.colors.textSecondary,
-                          marginLeft: 4,
-                          marginRight: 8,
-                        }}
-                      >
-                        {alert.location}
-                      </Text>
-                      <Text
-                        style={{
-                          fontFamily: "Inter_400Regular",
-                          fontSize: 12,
-                          color: theme.colors.textTertiary,
-                        }}
-                      >
-                        • {alert.distance}
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-                {index < nearbyAlerts.length - 1 && (
-                  <View
-                    style={{
-                      height: 1,
-                      backgroundColor: theme.colors.divider,
-                      marginLeft: 44,
-                    }}
-                  />
-                )}
-              </View>
-            );
-          })}
-        </View>
-
-        {/* Legend */}
-        <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
-          <Text
-            style={{
-              fontFamily: "Inter_600SemiBold",
-              fontSize: 16,
-              color: theme.colors.text,
+              backgroundColor: theme.colors.elevated,
+              borderRadius: 12,
+              padding: 16,
               marginBottom: 12,
             }}
           >
-            Safety Legend
-          </Text>
-          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-            <View style={{ alignItems: "center" }}>
-              <View
-                style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  backgroundColor: theme.colors.safe,
-                  marginBottom: 4,
-                }}
-              />
+            <Text
+              style={{
+                fontFamily: 'Inter_600SemiBold',
+                fontSize: 18,
+                color: theme.colors.text,
+                marginBottom: 4,
+              }}
+            >
+              Safety Map
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Activity size={14} color={theme.colors.success} strokeWidth={2} />
               <Text
                 style={{
-                  fontFamily: "Inter_400Regular",
-                  fontSize: 10,
+                  fontFamily: 'Inter_400Regular',
+                  fontSize: 12,
                   color: theme.colors.textSecondary,
+                  marginLeft: 6,
                 }}
               >
-                Safe Zone
-              </Text>
-            </View>
-            <View style={{ alignItems: "center" }}>
-              <View
-                style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  backgroundColor: theme.colors.warning,
-                  marginBottom: 4,
-                }}
-              />
-              <Text
-                style={{
-                  fontFamily: "Inter_400Regular",
-                  fontSize: 10,
-                  color: theme.colors.textSecondary,
-                }}
-              >
-                Caution
-              </Text>
-            </View>
-            <View style={{ alignItems: "center" }}>
-              <View
-                style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  backgroundColor: theme.colors.danger,
-                  marginBottom: 4,
-                }}
-              />
-              <Text
-                style={{
-                  fontFamily: "Inter_400Regular",
-                  fontSize: 10,
-                  color: theme.colors.textSecondary,
-                }}
-              >
-                High Risk
-              </Text>
-            </View>
-            <View style={{ alignItems: "center" }}>
-              <View
-                style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  backgroundColor: theme.colors.emergency,
-                  marginBottom: 4,
-                }}
-              />
-              <Text
-                style={{
-                  fontFamily: "Inter_400Regular",
-                  fontSize: 10,
-                  color: theme.colors.textSecondary,
-                }}
-              >
-                Your Location
+                {isLocationTrackingActive() ? 'Live tracking active' : 'Tracking inactive'} • {nearbyPlaces.length} safe places nearby
               </Text>
             </View>
           </View>
         </View>
-      </ScrollView>
+
+        {/* Bottom Controls */}
+        <View
+          style={{
+            position: 'absolute',
+            bottom: insets.bottom + 16,
+            left: 0,
+            right: 0,
+            paddingHorizontal: 24,
+          }}
+        >
+          {/* Route Info */}
+          {routeInfo && (
+            <View
+              style={{
+                backgroundColor: theme.colors.elevated,
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 12,
+              }}
+            >
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <View>
+                  <Text
+                    style={{
+                      fontFamily: 'Inter_500Medium',
+                      fontSize: 12,
+                      color: theme.colors.textSecondary,
+                    }}
+                  >
+                    Distance
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: 'Inter_600SemiBold',
+                      fontSize: 16,
+                      color: theme.colors.text,
+                    }}
+                  >
+                    {routeInfo.distance}
+                  </Text>
+                </View>
+                <View>
+                  <Text
+                    style={{
+                      fontFamily: 'Inter_500Medium',
+                      fontSize: 12,
+                      color: theme.colors.textSecondary,
+                    }}
+                  >
+                    Duration
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: 'Inter_600SemiBold',
+                      fontSize: 16,
+                      color: theme.colors.text,
+                    }}
+                  >
+                    {routeInfo.duration}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    setRoutePolyline([]);
+                    setRouteInfo(null);
+                  }}
+                  style={{
+                    backgroundColor: theme.colors.error,
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: 'Inter_500Medium',
+                      fontSize: 12,
+                      color: '#FFFFFF',
+                    }}
+                  >
+                    Clear
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Route Type Selector */}
+          <View
+            style={{
+              flexDirection: 'row',
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                backgroundColor:
+                  selectedRoute === 'safest' ? theme.colors.safe : theme.colors.elevated,
+                borderRadius: 12,
+                padding: 12,
+                alignItems: 'center',
+              }}
+              onPress={() => handleRouteSelect('safest')}
+              data-testid="route-safest-button"
+            >
+              <Shield
+                size={20}
+                color={selectedRoute === 'safest' ? '#FFFFFF' : theme.colors.text}
+                strokeWidth={1.5}
+              />
+              <Text
+                style={{
+                  fontFamily: 'Inter_500Medium',
+                  fontSize: 11,
+                  color: selectedRoute === 'safest' ? '#FFFFFF' : theme.colors.text,
+                  marginTop: 4,
+                }}
+              >
+                Safest
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                backgroundColor:
+                  selectedRoute === 'fastest' ? theme.colors.warning : theme.colors.elevated,
+                borderRadius: 12,
+                padding: 12,
+                alignItems: 'center',
+              }}
+              onPress={() => handleRouteSelect('fastest')}
+              data-testid="route-fastest-button"
+            >
+              <Zap
+                size={20}
+                color={selectedRoute === 'fastest' ? '#FFFFFF' : theme.colors.text}
+                strokeWidth={1.5}
+              />
+              <Text
+                style={{
+                  fontFamily: 'Inter_500Medium',
+                  fontSize: 11,
+                  color: selectedRoute === 'fastest' ? '#FFFFFF' : theme.colors.text,
+                  marginTop: 4,
+                }}
+              >
+                Fastest
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                backgroundColor:
+                  selectedRoute === 'well-lit' ? theme.colors.text : theme.colors.elevated,
+                borderRadius: 12,
+                padding: 12,
+                alignItems: 'center',
+              }}
+              onPress={() => handleRouteSelect('well-lit')}
+              data-testid="route-well-lit-button"
+            >
+              <Eye
+                size={20}
+                color={selectedRoute === 'well-lit' ? theme.colors.background : theme.colors.text}
+                strokeWidth={1.5}
+              />
+              <Text
+                style={{
+                  fontFamily: 'Inter_500Medium',
+                  fontSize: 11,
+                  color: selectedRoute === 'well-lit' ? theme.colors.background : theme.colors.text,
+                  marginTop: 4,
+                }}
+              >
+                Well-lit
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Navigation Button */}
+          <TouchableOpacity
+            style={{
+              backgroundColor: theme.colors.success,
+              borderRadius: 12,
+              padding: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onPress={handleStartNavigation}
+            disabled={loading || !currentLocation}
+            data-testid="start-navigation-button"
+          >
+            <Navigation size={20} color="#FFFFFF" strokeWidth={2} />
+            <Text
+              style={{
+                fontFamily: 'Inter_600SemiBold',
+                fontSize: 16,
+                color: '#FFFFFF',
+                marginLeft: 8,
+              }}
+            >
+              Navigate to Nearest Safe Place
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 }

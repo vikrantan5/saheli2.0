@@ -37,6 +37,7 @@ import LoudAlarm from "@/components/LoudAlarm";
 // Updated to use Supabase instead of Firebase
 import { onAuthChange } from "@/services/supabaseAuth";
 import { activateSOS } from "@/services/supabaseSosService";
+import { startLocationTracking, stopLocationTracking } from "@/services/locationService";
 
 export default function SafetyHomeScreen() {
   const insets = useSafeAreaInsets();
@@ -58,13 +59,29 @@ export default function SafetyHomeScreen() {
   });
 
   useEffect(() => {
-    // Check authentication status
-    const unsubscribe = onAuthChange((user) => {
+    // Check authentication status and start location tracking
+    const unsubscribe = onAuthChange(async (user) => {
       setIsAuthenticated(!!user);
       setCurrentUser(user);
+      
+      // Start automatic location tracking when user is authenticated
+      if (user) {
+        await startLocationTracking(user.id);
+        console.log('Automatic location tracking started for user:', user.id);
+      } else {
+        // Stop tracking when user logs out
+        stopLocationTracking();
+        console.log('Location tracking stopped');
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      // Stop tracking when component unmounts
+      if (currentUser) {
+        stopLocationTracking();
+      }
+    };
   }, []);
 
   useEffect(() => {
