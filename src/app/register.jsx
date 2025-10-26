@@ -12,10 +12,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Shield, ArrowLeft } from 'lucide-react-native';
 import { router } from 'expo-router';
-// Updated to use Supabase instead of Firebase
-import { registerUser } from '@/services/supabaseAuth';
-// OLD Firebase import (commented for backup):
-// import { registerUser } from '@/services/firebaseAuth';
+import { registerUser } from '@/services/firebaseAuth';
 import { useTheme } from '@/utils/useTheme';
 
 export default function RegisterScreen() {

@@ -32,7 +32,7 @@ import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
 import ChatRoom from "@/components/ChatRoom";
 import { getChatRooms, createChatRoom } from "@/services/chatService";
-import { onAuthChange } from "@/services/supabaseAuth";
+import { onAuthChange } from "@/services/firebaseAuth";
 import { router } from "expo-router";
 
 export default function CommunityScreen() {

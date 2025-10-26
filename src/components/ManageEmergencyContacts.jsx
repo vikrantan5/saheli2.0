@@ -12,8 +12,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, Plus, Trash2, Save, Phone, User } from 'lucide-react-native';
 import { useTheme } from '@/utils/useTheme';
-import { supabase } from '@/config/supabase';
-import { getCurrentUser } from '@/services/supabaseAuth';
+import firestore from '@react-native-firebase/firestore';
+import { getCurrentUser, getUserData, addEmergencyContact, deleteEmergencyContact } from '@/services/firebaseAuth';
 
 export default function ManageEmergencyContacts({ visible, onClose }) {
   const insets = useSafeAreaInsets();
@@ -32,28 +32,22 @@ export default function ManageEmergencyContacts({ visible, onClose }) {
   const loadContacts = async () => {
     try {
       setLoading(true);
-      const user = await getCurrentUser();
+      const user = getCurrentUser();
       if (!user) {
         Alert.alert('Error', 'You must be logged in');
         onClose();
         return;
       }
 
-      setUserId(user.id);
+      setUserId(user.uid);
 
-      // Fetch emergency contacts from Supabase
-      const { data, error } = await supabase
-        .from('emergency_contacts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        console.error('Error loading contacts:', error);
+      // Fetch emergency contacts from Firebase
+      const result = await getUserData(user.uid);
+      if (result.success) {
+        setContacts(result.data.emergencyContacts || []);
+      } else {
         Alert.alert('Error', 'Failed to load emergency contacts');
         setContacts([]);
-      } else {
-        setContacts(data || []);
       }
     } catch (error) {
       console.error('Load contacts error:', error);
@@ -95,15 +89,10 @@ export default function ManageEmergencyContacts({ visible, onClose }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              // If it's an existing contact (not a new one), delete from database
+              // If it's an existing contact (not a new one), delete from Firestore
               if (!contact.isNew && contact.id && !contact.id.startsWith('temp-')) {
-                const { error } = await supabase
-                  .from('emergency_contacts')
-                  .delete()
-                  .eq('id', contact.id);
-
-                if (error) {
-                  console.error('Delete error:', error);
+                const result = await deleteEmergencyContact(contact.id);
+                if (!result.success) {
                   Alert.alert('Error', 'Failed to delete contact from database');
                   return;
                 }
@@ -144,21 +133,36 @@ export default function ManageEmergencyContacts({ visible, onClose }) {
       const newContacts = validContacts.filter(c => c.isNew || c.id.startsWith('temp-'));
       const existingContacts = validContacts.filter(c => !c.isNew && !c.id.startsWith('temp-'));
 
+  const saveContacts = async () => {
+    try {
+      // Validate all contacts
+      const validContacts = contacts.filter(c => c.name.trim() && c.phone.trim());
+      
+      if (validContacts.length === 0) {
+        Alert.alert('Validation Error', 'Please add at least one emergency contact with name and phone number');
+        return;
+      }
+
+      if (validContacts.length < contacts.length) {
+        Alert.alert('Validation Error', 'Please fill in all contact names and phone numbers or remove empty contacts');
+        return;
+      }
+
+      setSaving(true);
+
+      // Separate new and existing contacts
+      const newContacts = validContacts.filter(c => c.isNew || c.id.startsWith('temp-'));
+      const existingContacts = validContacts.filter(c => !c.isNew && !c.id.startsWith('temp-'));
+
       // Insert new contacts
-      if (newContacts.length > 0) {
-        const contactsToInsert = newContacts.map(c => ({
-          user_id: userId,
-          name: c.name.trim(),
-          phone: c.phone.trim(),
-        }));
-
-        const { error: insertError } = await supabase
-          .from('emergency_contacts')
-          .insert(contactsToInsert);
-
-        if (insertError) {
-          console.error('Insert error:', insertError);
-          Alert.alert('Error', 'Failed to add new contacts: ' + insertError.message);
+      for (const contact of newContacts) {
+        const result = await addEmergencyContact(userId, {
+          name: contact.name.trim(),
+          phone: contact.phone.trim()
+        });
+        
+        if (!result.success) {
+          Alert.alert('Error', 'Failed to add contact: ' + contact.name);
           setSaving(false);
           return;
         }
@@ -166,20 +170,13 @@ export default function ManageEmergencyContacts({ visible, onClose }) {
 
       // Update existing contacts
       for (const contact of existingContacts) {
-        const { error: updateError } = await supabase
-          .from('emergency_contacts')
+        await firestore()
+          .collection('emergency_contacts')
+          .doc(contact.id)
           .update({
             name: contact.name.trim(),
             phone: contact.phone.trim(),
-          })
-          .eq('id', contact.id);
-
-        if (updateError) {
-          console.error('Update error:', updateError);
-          Alert.alert('Error', `Failed to update ${contact.name}: ${updateError.message}`);
-          setSaving(false);
-          return;
-        }
+          });
       }
 
       Alert.alert('Success', 'Emergency contacts saved successfully!');

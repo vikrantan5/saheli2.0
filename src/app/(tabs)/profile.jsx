@@ -36,8 +36,7 @@ import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
 import ActionButton from "@/components/ActionButton";
 import ManageEmergencyContacts from "@/components/ManageEmergencyContacts";
-import { onAuthChange, logoutUser, getUserData } from "@/services/supabaseAuth";
-import { supabase } from "@/config/supabase";
+import { onAuthChange, logoutUser, getUserData } from "@/services/firebaseAuth";
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();

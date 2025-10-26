@@ -20,7 +20,7 @@ import {
   subscribeToRoomMessages,
   unsubscribeFromRoom,
 } from '@/services/chatService';
-import { getCurrentUser } from '@/services/supabaseAuth';
+import { getCurrentUser } from '@/services/firebaseAuth';
 
 export default function ChatRoom({ visible, room, onClose }) {
   const insets = useSafeAreaInsets();

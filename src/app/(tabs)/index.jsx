@@ -34,9 +34,8 @@ import LoadingScreen from "@/components/LoadingScreen";
 import ActionButton from "@/components/ActionButton";
 import FakeCall from "@/components/FakeCall";
 import LoudAlarm from "@/components/LoudAlarm";
-// Updated to use Supabase instead of Firebase
-import { onAuthChange } from "@/services/supabaseAuth";
-import { activateSOS } from "@/services/supabaseSosService";
+import { onAuthChange } from "@/services/firebaseAuth";
+import { activateSOS } from "@/services/firebaseSosService";
 import { startLocationTracking, stopLocationTracking } from "@/services/locationService";
 
 export default function SafetyHomeScreen() {

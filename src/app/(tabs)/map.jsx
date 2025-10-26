@@ -31,7 +31,7 @@ import {
 } from "lucide-react-native";
 import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
-import { onAuthChange } from "@/services/supabaseAuth";
+import { onAuthChange } from "@/services/firebaseAuth";
 import {
   getCurrentLocation,
   startLocationTracking,

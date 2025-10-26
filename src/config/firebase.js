@@ -1,31 +1,32 @@
-// Firebase Configuration
-// Get these values from: https://console.firebase.google.com/
-// 1. Go to Firebase Console
-// 2. Select your project (or create a new one)
-// 3. Click on "Project Settings" (gear icon)
-// 4. Scroll down to "Your apps" section
-// 5. Click on "Web" icon (</>)
-// 6. Copy the firebaseConfig object and paste below
+// Firebase Configuration for React Native
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 
-// import { initializeApp } from 'firebase/app';
-// import { getAuth } from 'firebase/auth';
-// import { getFirestore } from 'firebase/firestore';
+/**
+ * Firebase Configuration
+ * 
+ * SETUP INSTRUCTIONS:
+ * 1. Go to Firebase Console: https://console.firebase.google.com
+ * 2. Select your project → Project Settings
+ * 3. Configure platform-specific files:
+ * 
+ * For Android:
+ * - Download google-services.json
+ * - Place in /app/android/app/google-services.json
+ * 
+ * For iOS:
+ * - Download GoogleService-Info.plist
+ * - Place in /app/ios/GoogleService-Info.plist
+ * 
+ * React Native Firebase automatically reads these config files.
+ * No need to manually initialize here - it's done natively.
+ */
 
-// TODO: Replace with your Firebase project configuration
-// const firebaseConfig = {
-//   apiKey: "YOUR_API_KEY",
-//   authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-//   projectId: "YOUR_PROJECT_ID",
-//   storageBucket: "YOUR_PROJECT_ID.appspot.com",
-//   messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-//   appId: "YOUR_APP_ID"
-// };
+// Export Firebase services for use throughout the app
+export { auth, firestore };
 
-// Initialize Firebase
-// const app = initializeApp(firebaseConfig);
+// Helper to get current timestamp
+export const getTimestamp = () => firestore.Timestamp.now();
 
-// Initialize Firebase Authentication and Firestore
-// export const auth = getAuth(app);
-// export const db = getFirestore(app);
-
-// export default app;
+// Helper to get server timestamp (for Firestore writes)
+export const serverTimestamp = () => firestore.FieldValue.serverTimestamp();

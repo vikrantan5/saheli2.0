@@ -1,165 +1,232 @@
-// Real-time Chat Service with Supabase
-import { supabase } from '../config/supabase';
+// Real-time Chat Service with Firebase Firestore
+import firestore from '@react-native-firebase/firestore';
 
-// Get all chat rooms
+/**
+ * Get all chat rooms
+ * @returns {Promise<Array>} Array of chat room objects
+ */
 export const getChatRooms = async () => {
   try {
-    const { data, error } = await supabase
-      .from('chat_rooms')
-      .select('*')
-      .order('created_at', { ascending: true });
+    const snapshot = await firestore()
+      .collection('chat_rooms')
+      .orderBy('created_at', 'asc')
+      .get();
 
-    if (error) {
-      console.error('Error fetching chat rooms:', error);
-      return [];
-    }
+    const rooms = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
 
-    return data || [];
+    return rooms;
   } catch (error) {
-    console.error('Get chat rooms error:', error);
+    console.error('❌ Get chat rooms error:', error);
     return [];
   }
 };
 
-// Get messages for a specific room
+/**
+ * Get messages for a specific room
+ * @param {string} roomId - Chat room ID
+ * @param {number} limit - Maximum number of messages to fetch
+ * @returns {Promise<Array>} Array of message objects with user info
+ */
 export const getRoomMessages = async (roomId, limit = 50) => {
   try {
-    const { data, error } = await supabase
-      .from('chat_messages')
-      .select(`
-        *,
-        users (name, email)
-      `)
-      .eq('room_id', roomId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+    const snapshot = await firestore()
+      .collection('chat_messages')
+      .where('room_id', '==', roomId)
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .get();
 
-    if (error) {
-      console.error('Error fetching messages:', error);
-      return [];
-    }
+    const messages = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      // Firestore returns timestamp, convert if needed
+      created_at: doc.data().created_at?.toDate()
+    }));
 
-    return (data || []).reverse(); // Reverse to show oldest first
+    // Reverse to show oldest first
+    return messages.reverse();
   } catch (error) {
-    console.error('Get room messages error:', error);
+    console.error('❌ Get room messages error:', error);
     return [];
   }
 };
 
-// Send a message
+/**
+ * Send a message to a chat room
+ * @param {string} roomId - Chat room ID
+ * @param {string} userId - User ID
+ * @param {string} message - Message text
+ * @param {boolean} isAnonymous - Whether message is anonymous
+ * @returns {Promise<Object>} Result with success status
+ */
 export const sendMessage = async (roomId, userId, message, isAnonymous = false) => {
   try {
-    const { data, error } = await supabase
-      .from('chat_messages')
-      .insert([
-        {
-          room_id: roomId,
-          user_id: userId,
-          message: message.trim(),
-          is_anonymous: isAnonymous,
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single();
+    const messageData = {
+      room_id: roomId,
+      user_id: userId,
+      message: message.trim(),
+      is_anonymous: isAnonymous,
+      created_at: firestore.FieldValue.serverTimestamp(),
+    };
 
-    if (error) {
-      console.error('Error sending message:', error);
-      return { success: false, error: error.message };
-    }
+    const docRef = await firestore()
+      .collection('chat_messages')
+      .add(messageData);
 
-    return { success: true, data };
+    console.log('✅ Message sent:', docRef.id);
+    
+    return { 
+      success: true, 
+      data: { id: docRef.id, ...messageData }
+    };
   } catch (error) {
-    console.error('Send message error:', error);
+    console.error('❌ Send message error:', error);
     return { success: false, error: error.message };
   }
 };
 
-// Subscribe to new messages in a room (real-time)
+/**
+ * Subscribe to new messages in a room (real-time listener)
+ * @param {string} roomId - Chat room ID
+ * @param {Function} callback - Callback function to handle new messages
+ * @returns {Function} Unsubscribe function
+ */
 export const subscribeToRoomMessages = (roomId, callback) => {
-  const subscription = supabase
-    .channel(`room:${roomId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'chat_messages',
-        filter: `room_id=eq.${roomId}`,
-      },
-      async (payload) => {
-        // Fetch user data for the new message
-        const { data: userData } = await supabase
-          .from('users')
-          .select('name, email')
-          .eq('id', payload.new.user_id)
-          .single();
+  try {
+    const unsubscribe = firestore()
+      .collection('chat_messages')
+      .where('room_id', '==', roomId)
+      .orderBy('created_at', 'desc')
+      .limit(1) // Only listen for new messages
+      .onSnapshot(
+        (snapshot) => {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const message = {
+                id: change.doc.id,
+                ...change.doc.data(),
+                created_at: change.doc.data().created_at?.toDate()
+              };
+              
+              // Pass the new message to callback
+              callback(message);
+            }
+          });
+        },
+        (error) => {
+          console.error('❌ Message subscription error:', error);
+        }
+      );
 
-        const messageWithUser = {
-          ...payload.new,
-          users: userData,
-        };
-
-        callback(messageWithUser);
-      }
-    )
-    .subscribe();
-
-  return subscription;
-};
-
-// Unsubscribe from room
-export const unsubscribeFromRoom = (subscription) => {
-  if (subscription) {
-    supabase.removeChannel(subscription);
+    return unsubscribe;
+  } catch (error) {
+    console.error('❌ Subscribe to room error:', error);
+    return () => {}; // Return empty unsubscribe function
   }
 };
 
-// Create a new chat room (admin only)
+/**
+ * Unsubscribe from room messages
+ * @param {Function} unsubscribe - Unsubscribe function returned from subscribeToRoomMessages
+ */
+export const unsubscribeFromRoom = (unsubscribe) => {
+  if (unsubscribe && typeof unsubscribe === 'function') {
+    unsubscribe();
+  }
+};
+
+/**
+ * Create a new chat room (admin only - typically done manually in Firebase Console)
+ * @param {string} name - Room name
+ * @param {string} description - Room description
+ * @param {string} icon - Icon identifier
+ * @returns {Promise<Object>} Result with success status
+ */
 export const createChatRoom = async (name, description, icon) => {
   try {
-    const { data, error } = await supabase
-      .from('chat_rooms')
-      .insert([
-        {
-          name,
-          description,
-          icon,
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single();
+    const roomData = {
+      name,
+      description,
+      icon,
+      created_at: firestore.FieldValue.serverTimestamp(),
+    };
 
-    if (error) {
-      console.error('Error creating chat room:', error);
-      return { success: false, error: error.message };
-    }
+    const docRef = await firestore()
+      .collection('chat_rooms')
+      .add(roomData);
 
-    return { success: true, data };
+    console.log('✅ Chat room created:', docRef.id);
+    
+    return { 
+      success: true, 
+      data: { id: docRef.id, ...roomData }
+    };
   } catch (error) {
-    console.error('Create chat room error:', error);
+    console.error('❌ Create chat room error:', error);
     return { success: false, error: error.message };
   }
 };
 
-// Delete a message (user can delete their own messages)
+/**
+ * Delete a message (user can only delete their own messages)
+ * @param {string} messageId - Message ID
+ * @param {string} userId - User ID (for verification)
+ * @returns {Promise<Object>} Result with success status
+ */
 export const deleteMessage = async (messageId, userId) => {
   try {
-    const { error } = await supabase
-      .from('chat_messages')
-      .delete()
-      .eq('id', messageId)
-      .eq('user_id', userId);
+    // First verify the message belongs to the user
+    const messageDoc = await firestore()
+      .collection('chat_messages')
+      .doc(messageId)
+      .get();
 
-    if (error) {
-      console.error('Error deleting message:', error);
-      return { success: false, error: error.message };
+    if (!messageDoc.exists) {
+      return { success: false, error: 'Message not found' };
     }
 
+    if (messageDoc.data().user_id !== userId) {
+      return { success: false, error: 'Unauthorized: Cannot delete other users messages' };
+    }
+
+    await firestore()
+      .collection('chat_messages')
+      .doc(messageId)
+      .delete();
+
+    console.log('✅ Message deleted:', messageId);
     return { success: true };
   } catch (error) {
-    console.error('Delete message error:', error);
+    console.error('❌ Delete message error:', error);
     return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Get chat room by ID
+ * @param {string} roomId - Room ID
+ * @returns {Promise<Object|null>} Room data or null
+ */
+export const getChatRoom = async (roomId) => {
+  try {
+    const doc = await firestore()
+      .collection('chat_rooms')
+      .doc(roomId)
+      .get();
+
+    if (!doc.exists) {
+      return null;
+    }
+
+    return {
+      id: doc.id,
+      ...doc.data()
+    };
+  } catch (error) {
+    console.error('❌ Get chat room error:', error);
+    return null;
   }
 };

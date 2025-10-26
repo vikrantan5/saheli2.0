@@ -1,6 +1,6 @@
 // Live Location Tracking Service
 import * as Location from 'expo-location';
-import { supabase } from '../config/supabase';
+import firestore from '@react-native-firebase/firestore';
 import { Alert } from 'react-native';
 
 let locationSubscription = null;
@@ -77,35 +77,29 @@ export const startLocationTracking = async (userId) => {
       },
       async (location) => {
         try {
-          // Update location in Supabase
-          const { error } = await supabase
-            .from('user_locations')
-            .upsert({
-              user_id: userId,
+          // Update location in Firestore
+          await firestore()
+            .collection('user_locations')
+            .doc(userId)
+            .set({
               latitude: location.coords.latitude,
               longitude: location.coords.longitude,
               accuracy: location.coords.accuracy,
-              updated_at: new Date().toISOString(),
-            }, {
-              onConflict: 'user_id'
-            });
+              updated_at: firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
 
-          if (error) {
-            console.error('Error updating location:', error);
-          } else {
-            console.log('Location updated successfully');
-          }
+          console.log('✅ Location updated successfully');
         } catch (error) {
-          console.error('Location update error:', error);
+          console.error('❌ Error updating location:', error);
         }
       }
     );
 
     isTracking = true;
-    console.log('Location tracking started');
+    console.log('✅ Location tracking started');
     return true;
   } catch (error) {
-    console.error('Start location tracking error:', error);
+    console.error('❌ Start location tracking error:', error);
     return false;
   }
 };
@@ -120,23 +114,26 @@ export const stopLocationTracking = () => {
   }
 };
 
-// Get user's shared location from Supabase
+// Get user's shared location from Firestore
 export const getUserLocation = async (userId) => {
   try {
-    const { data, error } = await supabase
-      .from('user_locations')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
+    const doc = await firestore()
+      .collection('user_locations')
+      .doc(userId)
+      .get();
 
-    if (error) {
-      console.error('Error fetching user location:', error);
+    if (!doc.exists) {
+      console.log('No location data found for user');
       return null;
     }
 
-    return data;
+    return {
+      id: doc.id,
+      ...doc.data(),
+      updated_at: doc.data().updated_at?.toDate()
+    };
   } catch (error) {
-    console.error('Get user location error:', error);
+    console.error('❌ Get user location error:', error);
     return null;
   }
 };
@@ -145,32 +142,45 @@ export const getUserLocation = async (userId) => {
 export const getTrustedContactsLocations = async (userId) => {
   try {
     // First get emergency contacts
-    const { data: contacts, error: contactsError } = await supabase
-      .from('emergency_contacts')
-      .select('user_id')
-      .eq('user_id', userId);
+    const contactsSnapshot = await firestore()
+      .collection('emergency_contacts')
+      .where('user_id', '==', userId)
+      .get();
 
-    if (contactsError) {
-      console.error('Error fetching contacts:', contactsError);
+    if (contactsSnapshot.empty) {
+      console.log('No emergency contacts found');
       return [];
     }
 
-    // Then get their locations
-    const contactIds = contacts.map(c => c.user_id);
+    // Extract user IDs from contacts
+    const contactUserIds = contactsSnapshot.docs.map(doc => doc.data().user_id);
     
-    const { data: locations, error: locationsError } = await supabase
-      .from('user_locations')
-      .select('*')
-      .in('user_id', contactIds);
-
-    if (locationsError) {
-      console.error('Error fetching locations:', locationsError);
+    if (contactUserIds.length === 0) {
       return [];
     }
 
-    return locations || [];
+    // Get locations for these users
+    // Note: Firestore 'in' query supports up to 10 items
+    const locations = [];
+    
+    for (const contactUserId of contactUserIds) {
+      const locationDoc = await firestore()
+        .collection('user_locations')
+        .doc(contactUserId)
+        .get();
+      
+      if (locationDoc.exists) {
+        locations.push({
+          id: locationDoc.id,
+          ...locationDoc.data(),
+          updated_at: locationDoc.data().updated_at?.toDate()
+        });
+      }
+    }
+
+    return locations;
   } catch (error) {
-    console.error('Get trusted contacts locations error:', error);
+    console.error('❌ Get trusted contacts locations error:', error);
     return [];
   }
 };
