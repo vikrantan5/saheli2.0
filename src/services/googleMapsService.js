@@ -1,7 +1,7 @@
 // Google Maps & Places API Service
 import * as Location from 'expo-location';
 
-const GOOGLE_API_KEY = 'AIzaSyDKz4KM0oHphvPQtM7DhG9QfpaHp4ql4bM';
+const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_API_KEY;
 
 // Fetch nearby safe places (police stations, hospitals)
 export const getNearbyPlaces = async (latitude, longitude, radius = 5000) => {

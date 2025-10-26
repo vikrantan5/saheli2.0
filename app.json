@@ -86,8 +86,8 @@
       "router": {
         "origin": false
       },
-      "supabaseUrl": "https://qhhxurqgigshrlzvmsbf.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoaHh1cnFnaWdzaHJsenZtc2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEyNTM0NjcsImV4cCI6MjA3NjgyOTQ2N30.ECpB-eBOY5_btjfjaCPjeDPiGDLaIalegbzz5I9FhYs"
+      "supabaseUrl": "https://etvuynlfwxbgfyaektwm.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0dnV5bmxmd3hiZ2Z5YWVrdHdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MDg0ODksImV4cCI6MjA3Njk4NDQ4OX0.ssC39ucwck37l-17kr-Sk9F4RStsnslGEqVjrKzuzII"
     },
     "runtimeVersion": {
       "policy": "appVersion"

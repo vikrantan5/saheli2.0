@@ -699,6 +699,14 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Manage Emergency Contacts Modal */}
+      {showManageContacts && (
+        <ManageEmergencyContacts
+          visible={showManageContacts}
+          onClose={handleCloseManageContacts}
+        />
+      )}
     </View>
   );
 }

@@ -6,6 +6,8 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  TextInput,
+  Modal,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,11 +25,13 @@ import {
   HelpCircle,
   Shield,
   ChevronRight,
+  Plus,
+  X,
 } from "lucide-react-native";
 import { useTheme } from "@/utils/useTheme";
 import LoadingScreen from "@/components/LoadingScreen";
 import ChatRoom from "@/components/ChatRoom";
-import { getChatRooms } from "@/services/chatService";
+import { getChatRooms, createChatRoom } from "@/services/chatService";
 import { onAuthChange } from "@/services/supabaseAuth";
 import { router } from "expo-router";
 
@@ -38,6 +42,11 @@ export default function CommunityScreen() {
   const [showChatRoom, setShowChatRoom] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newCommunityName, setNewCommunityName] = useState('');
+  const [newCommunityDescription, setNewCommunityDescription] = useState('');
+  const [selectedIcon, setSelectedIcon] = useState('users');
+  const [creating, setCreating] = useState(false);
   const theme = useTheme();
 
   const [fontsLoaded] = useFonts({
@@ -118,6 +127,74 @@ export default function CommunityScreen() {
       default:
         return theme.colors.text;
     }
+  };
+
+  const availableIcons = [
+    { name: 'users', component: Users, label: 'Users' },
+    { name: 'message-circle', component: MessageCircle, label: 'Message' },
+    { name: 'alert-triangle', component: AlertTriangle, label: 'Alert' },
+    { name: 'help-circle', component: HelpCircle, label: 'Help' },
+    { name: 'shield', component: Shield, label: 'Shield' },
+    { name: 'heart', component: Heart, label: 'Heart' },
+  ];
+
+  const handleCreateCommunity = () => {
+    if (!isAuthenticated) {
+      Alert.alert(
+        'Login Required',
+        'Please login to create communities',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Login', onPress: () => router.push('/login') },
+        ]
+      );
+      return;
+    }
+    setShowCreateModal(true);
+  };
+
+  const handleSaveNewCommunity = async () => {
+    if (!newCommunityName.trim()) {
+      Alert.alert('Validation Error', 'Please enter a community name');
+      return;
+    }
+    if (!newCommunityDescription.trim()) {
+      Alert.alert('Validation Error', 'Please enter a community description');
+      return;
+    }
+
+    try {
+      setCreating(true);
+      const result = await createChatRoom(
+        newCommunityName.trim(),
+        newCommunityDescription.trim(),
+        selectedIcon
+      );
+
+      if (result.success) {
+        Alert.alert('Success', 'Community created successfully!');
+        setShowCreateModal(false);
+        setNewCommunityName('');
+        setNewCommunityDescription('');
+        setSelectedIcon('users');
+        // Reload chat rooms
+        loadChatRooms();
+      } else {
+        Alert.alert('Error', result.error || 'Failed to create community');
+      }
+    } catch (error) {
+      console.error('Create community error:', error);
+      Alert.alert('Error', 'Failed to create community');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCancelCreate = () => {
+    setShowCreateModal(false);
+    setNewCommunityName('');
+    setNewCommunityDescription('');
+    setSelectedIcon('users');
   };
 
   if (!fontsLoaded) {
@@ -218,16 +295,43 @@ export default function CommunityScreen() {
 
         {/* Chat Rooms List */}
         <View style={{ paddingHorizontal: 24 }}>
-          <Text
-            style={{
-              fontFamily: "Inter_600SemiBold",
-              fontSize: 18,
-              color: theme.colors.text,
-              marginBottom: 16,
-            }}
-          >
-            Active Chat Rooms
-          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Text
+              style={{
+                fontFamily: "Inter_600SemiBold",
+                fontSize: 18,
+                color: theme.colors.text,
+              }}
+            >
+              Active Chat Rooms
+            </Text>
+            {isAuthenticated && (
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: theme.colors.success,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                }}
+                onPress={handleCreateCommunity}
+                data-testid="create-community-button"
+              >
+                <Plus size={16} color="#FFFFFF" strokeWidth={2} />
+                <Text
+                  style={{
+                    fontFamily: 'Inter_600SemiBold',
+                    fontSize: 14,
+                    color: '#FFFFFF',
+                    marginLeft: 4,
+                  }}
+                >
+                  Create
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
           {loading ? (
             <View style={{ alignItems: 'center', paddingVertical: 40 }}>
@@ -392,6 +496,226 @@ export default function CommunityScreen() {
           onClose={handleCloseChatRoom}
         />
       )}
+
+      {/* Create Community Modal */}
+      <Modal
+        visible={showCreateModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={handleCancelCreate}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: theme.colors.background,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingTop: 20,
+              paddingBottom: insets.bottom + 20,
+              paddingHorizontal: 24,
+              maxHeight: '85%',
+            }}
+          >
+            {/* Modal Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+              <Text
+                style={{
+                  fontFamily: 'Inter_600SemiBold',
+                  fontSize: 20,
+                  color: theme.colors.text,
+                }}
+              >
+                Create New Community
+              </Text>
+              <TouchableOpacity onPress={handleCancelCreate} data-testid="close-create-modal">
+                <X size={24} color={theme.colors.text} strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Community Name */}
+              <View style={{ marginBottom: 20 }}>
+                <Text
+                  style={{
+                    fontFamily: 'Inter_500Medium',
+                    fontSize: 14,
+                    color: theme.colors.text,
+                    marginBottom: 8,
+                  }}
+                >
+                  Community Name *
+                </Text>
+                <TextInput
+                  style={{
+                    backgroundColor: theme.colors.elevated,
+                    borderRadius: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    fontFamily: 'Inter_400Regular',
+                    fontSize: 15,
+                    color: theme.colors.text,
+                    borderWidth: 1,
+                    borderColor: theme.colors.divider,
+                  }}
+                  placeholder="Enter community name"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={newCommunityName}
+                  onChangeText={setNewCommunityName}
+                  data-testid="community-name-input"
+                />
+              </View>
+
+              {/* Community Description */}
+              <View style={{ marginBottom: 20 }}>
+                <Text
+                  style={{
+                    fontFamily: 'Inter_500Medium',
+                    fontSize: 14,
+                    color: theme.colors.text,
+                    marginBottom: 8,
+                  }}
+                >
+                  Description *
+                </Text>
+                <TextInput
+                  style={{
+                    backgroundColor: theme.colors.elevated,
+                    borderRadius: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    fontFamily: 'Inter_400Regular',
+                    fontSize: 15,
+                    color: theme.colors.text,
+                    borderWidth: 1,
+                    borderColor: theme.colors.divider,
+                    minHeight: 80,
+                    textAlignVertical: 'top',
+                  }}
+                  placeholder="Describe the purpose of this community"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={newCommunityDescription}
+                  onChangeText={setNewCommunityDescription}
+                  multiline
+                  numberOfLines={3}
+                  data-testid="community-description-input"
+                />
+              </View>
+
+              {/* Icon Selection */}
+              <View style={{ marginBottom: 24 }}>
+                <Text
+                  style={{
+                    fontFamily: 'Inter_500Medium',
+                    fontSize: 14,
+                    color: theme.colors.text,
+                    marginBottom: 12,
+                  }}
+                >
+                  Choose Icon *
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                  {availableIcons.map((icon) => {
+                    const IconComponent = icon.component;
+                    const isSelected = selectedIcon === icon.name;
+                    return (
+                      <TouchableOpacity
+                        key={icon.name}
+                        style={{
+                          width: 70,
+                          height: 70,
+                          borderRadius: 12,
+                          backgroundColor: isSelected ? theme.colors.success : theme.colors.elevated,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          borderWidth: 2,
+                          borderColor: isSelected ? theme.colors.success : theme.colors.divider,
+                        }}
+                        onPress={() => setSelectedIcon(icon.name)}
+                        data-testid={`icon-${icon.name}`}
+                      >
+                        <IconComponent
+                          size={28}
+                          color={isSelected ? '#FFFFFF' : theme.colors.text}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={{
+                            fontFamily: 'Inter_400Regular',
+                            fontSize: 10,
+                            color: isSelected ? '#FFFFFF' : theme.colors.textSecondary,
+                            marginTop: 4,
+                          }}
+                        >
+                          {icon.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: theme.colors.elevated,
+                    borderRadius: 12,
+                    paddingVertical: 14,
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: theme.colors.divider,
+                  }}
+                  onPress={handleCancelCreate}
+                  disabled={creating}
+                >
+                  <Text
+                    style={{
+                      fontFamily: 'Inter_600SemiBold',
+                      fontSize: 16,
+                      color: theme.colors.text,
+                    }}
+                  >
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: theme.colors.success,
+                    borderRadius: 12,
+                    paddingVertical: 14,
+                    alignItems: 'center',
+                  }}
+                  onPress={handleSaveNewCommunity}
+                  disabled={creating}
+                  data-testid="save-community-button"
+                >
+                  {creating ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text
+                      style={{
+                        fontFamily: 'Inter_600SemiBold',
+                        fontSize: 16,
+                        color: '#FFFFFF',
+                      }}
+                    >
+                      Create
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
